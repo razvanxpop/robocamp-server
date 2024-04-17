@@ -1,101 +1,172 @@
-import express from "express";
 import bodyParser from 'body-parser';
-import dotenv from "dotenv";
 import cors from 'cors';
+import dotenv from "dotenv";
+import express from "express";
+import knex from "knex";
 import validator from 'validator';
+import { robotGenerator, taskGenerator } from "./cronjob.js";
 import "./socket.js";
 
 dotenv.config();
 
 const app = express();
-const SERVER_PORT = process.env.SERVER_PORT;
 
 // Middleware to parse
 app.use(bodyParser.urlencoded({extended: false}))
 app.use(bodyParser.json())
 app.use(cors())
 
-const resources = []
+// Database connection
+export const database = knex({
+  client: 'pg',
+  connection: {
+    host: process.env.DATABASE_HOST,
+    user: process.env.DATABASE_USER,
+    password: process.env.DATABASE_PASSWORD,
+    database: process.env.DATABASE_NAME
+  }
+})
+
+//robotGenerator(); // generate robots
+//taskGenerator(); // generate tasks
+
 // Routes
-
 // Create (POST)
-app.post('/api/resources', (req, res) => {
-    const newRobot = req.body;
-
-    const emailExists = resources.some(robot => robot.email === newRobot.email);
+app.post('/api/robots', async (req, res) => {
+    const { name, email } = req.body;
+  
+    const emailExists = await database('robots').count('*').where('email', email).then(result => result[0].count > 0);
     if (emailExists) {
         return res.status(400).json({ message: 'Email already exists in the list of robots' });
     }
 
-    resources.push(newRobot);
-    res.status(201).json(newRobot);
+    await database('robots').insert({
+      name: name,
+      email: email
+    })
+
+    res.status(201).json(await database('robots').select('*').where('email', email).then(data => data[0]));
 });
 
 // Read all (GET)
-app.get('/api/resources', (req, res) => {
-    res.status(200).json(resources);
+app.get('/api/robots', async (req, res) => {
+    res.status(200).json(await database('robots').select('*').then(data => data));
 });
 
 // Read by ID (GET)
-app.get('/api/resources/:id', (req, res) => {
-    const id = req.params.id;
-    const resource = resources.find(r => r.id === id);
-    if (!resource) {
-        res.status(404).json({ message: 'Resource not found' });
+app.get('/api/robots/:id', async (req, res) => {
+    const { id } = req.params;
+    const robot = await database('robots').select('*').where('id', id).then(data => data[0])
+    if (!robot) {
+        res.status(404).json({ message: 'Robot not found' });
     } else {
-        res.status(200).json(resource);
+        res.status(200).json(robot);
     }
 });
 
 // Update (PATCH)
-app.patch('/api/resources/:id', (req, res) => {
+app.patch('/api/robots/:id', async (req, res) => {
     const id = req.params.id;
     const updatedResource = req.body;
-    const index = resources.findIndex(r => r.id === id);
-    if (index === -1) {
-        res.status(404).json({ message: 'Resource not found' });
+    const found = await database('robots').count('*').where('id', id).then(result => result[0].count > 0);
+    if (!found) {
+        res.status(404).json({ message: 'Robot not found' });
     } else {
-        resources[index] = { ...resources[index], ...updatedResource };
-        res.status(200).json(resources[index]);
+        await database('robots').where('id', id).update(updatedResource)
+          .then(async () => res.status(200).json(await database('robots').select('*').where('id', id).then(data => data[0])))
+          .catch(() => res.sendStatus(500))
     }
 });
 
 // Delete (DELETE)
-app.delete('/api/resources/:id', (req, res) => {
-    const id = req.params.id;
-    const index = resources.findIndex(r => r.id === id);
-    if (index === -1) {
-        res.status(404).json({ message: 'Resource not found' });
+app.delete('/api/robots/:id', async (req, res) => {
+    const { id } = req.params;
+    const found = await database('robots').count('*').where('id', id).then(result => result[0].count > 0);
+    if (!found) {
+        res.status(404).json({ message: 'Robot not found' });
     } else {
-        resources.splice(index, 1);
-        res.sendStatus(204);
+        await database('robots').where('id', id).del()
+          .then(() => res.sendStatus(204))
+          .catch(() => res.sendStatus(500))
     }
 });
 
+// Create a task
+app.post('/api/tasks', async (req, res) => {
+  const { name, description, status, robotId } = req.body;
+
+  const robotExists = await database('robots').count('*').where('id', robotId).then(result => result[0].count > 0);
+
+  if (!robotExists) {
+    return res.status(400).json({ message: 'The robot that was assigned to this task does not exist' });
+  } else {
+    await database('tasks').insert({
+      name: name,
+      description: description,
+      status: status,
+      robotid: robotId
+    })
+
+    res.status(201).json(await database('tasks').select('*').where('robotid', robotId).then(data => data));
+  }
+});
+
+// Read tasks
+app.get('/api/tasks', async (req, res) => {
+  res.status(200).json(await database('tasks').select('*').then(data => data));
+});
+
+// Read tasks for a robot
+app.get('/api/tasks/:robotId', async (req, res) => {
+  const { robotId } = req.params;
+
+  const robot = await database('robots').select('*').where('id', robotId).then(data => data[0]);
+
+  if (!robot) {
+    res.status(404).json({ message: 'There is no robot with the given id' });
+  } else {
+    res.status(200).json(await database('tasks').select('*').where('robotid', robotId).then(data => data));
+  }
+})
+
+// Update a task
+app.put('/api/tasks/:id', async (req, res) => {
+  const { id } = req.params;
+
+  const found = await database('tasks').count('*').where('id', id).then(result => result[0].count > 0);
+
+  if(!found){
+    res.status(400).json({message: 'Task not found'});
+  } else {
+    await database('tasks').where('id', id).update(req.body)
+      .then(async () => res.status(200).json(await database('tasks').select('*').where('id', id).then(data => data[0])))
+      .catch(() => res.sendStatus(500))
+  }
+});
+
+  // Delete a task
+app.delete('/api/tasks/:id', async (req, res) => {
+  const { id } = req.params;
+
+  const found = await database('tasks').count('*').where('id', id).then(result => result[0].count > 0);
+
+  if(!found){
+    res.status(400).json({message: 'Task not found'});
+  } else {
+    await database('tasks').where('id', id).del()
+      .then(() => res.sendStatus(204))
+      .catch(() => res.sendStatus(500))
+  }
+});
+
 // Start the server
-app.listen(SERVER_PORT, () => {
-    console.log(`Server is listening at http://localhost:${SERVER_PORT}`);
+app.listen(process.env.SERVER_PORT, () => {
+    console.log(`Server is listening at http://localhost:${process.env.SERVER_PORT}`);
 });
 
 export default app;
 
 /*
-Requirements:
-  - CRUD
-    ○ Create (POST) should return a 201 Created status code
-    ○ Read (GET) should return a 200 status code
-      § 2 endpoints are required - getOne and getAll (list of all the elements)
-    ○ Update (PATCH) should return a 200 OK status code. Should use the ID of the entity to find it
-    ○ Delete (DELETE) should return a 204 No content status code WITHOUT any response body
-  - Frontend should handle those calls and their respective status codes. 
-  It also must provide a visual feedback to the user (alert, snack bar, notification etc… anything)
-  - If Read (by id), Update or Delete are trying to manipulate a non-existent entity, 
-  the backend should return a 404 status code and frontend should display the right message. 
-  You can also return a json with a message from the backend.
   - You must write unit tests for your endpoints 
   (so at least 5 unit tests are expected - one for each endpoint)
-*/
-
-/*
-  
 */
