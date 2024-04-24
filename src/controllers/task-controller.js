@@ -98,6 +98,17 @@ export const getTasksByRobot = async (req, res) => {
 export const updateTask = async (req, res) => {
   // Sanitize the ID parameter to prevent cross-site scripting (XSS) attacks
   const id = xss(req.params.id);
+  const name = req.body.name !== undefined ? xss(req.body.name) : undefined;
+  const description = req.body.description !== undefined ? xss(req.body.description) : undefined;
+  const status = req.body.status !== undefined ? xss(req.body.status) : undefined;
+  const robotId = req.body.robotId !== undefined ? xss(req.body.robotId) : undefined;
+
+  const updateTask = {
+    name: name,
+    description: description,
+    status: status,
+    robotid: robotId
+  };
 
   // Check if the task exists in the database
   const found = await database('tasks').count('*').where('id', id).then(result => result[0].count > 0);
@@ -107,7 +118,7 @@ export const updateTask = async (req, res) => {
     res.status(400).json({message: 'Task not found'});
   } else {
     // Update the task in the database
-    await database('tasks').where('id', id).update(req.body)
+    await database('tasks').where('id', id).update(updateTask)
       .then(async () => res.status(200).json(await database('tasks').select('*').where('id', id).then(data => data[0])))
       .catch(() => res.sendStatus(500))
   }
