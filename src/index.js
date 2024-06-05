@@ -1,6 +1,7 @@
 import dotenv from "dotenv";
 import express from "express";
 import setupMiddleware from "./middleware/middleware.js";
+import authRoutes from "./routes/auth-routers.js";
 import robotRoutes from "./routes/robot-routes.js";
 import taskRoutes from "./routes/task-routes.js";
 import { robotGenerator, taskGenerator } from "./utils/cronjob.js";
@@ -20,6 +21,7 @@ setupMiddleware(app);
 // Routes
 app.use('/api/robots', robotRoutes);
 app.use('/api/tasks', taskRoutes);
+app.use('/api/auth', authRoutes);
 
 // Start the server
 app.listen(process.env.SERVER_PORT, () => {

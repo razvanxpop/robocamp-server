@@ -7,7 +7,7 @@ taskRoutes.get('/', getTasks);
 taskRoutes.get('/:id', getTask);
 taskRoutes.get('/robot/:robotId', getTasksByRobot);
 taskRoutes.post('/', createTask);
-taskRoutes.put('/:id', updateTask);
+taskRoutes.patch('/:id', updateTask);
 taskRoutes.delete('/:id', deleteTask);
 
 export default taskRoutes;

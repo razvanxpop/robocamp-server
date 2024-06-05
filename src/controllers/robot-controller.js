@@ -4,8 +4,11 @@ import database from '../config/database.js';
 export const createRobot = async (req, res) => {
   const name = req.body.name !== undefined ? xss(req.body.name) : undefined;
   const email = req.body.email !== undefined ? xss(req.body.email) : undefined;
+  const user_id = req.body.user_id !== undefined ? xss(req.body.user_id) : undefined;
 
-  // Check if either the name or email is missing
+  if(user_id === undefined){
+    return res.status(400).json({ message: 'User ID is required! The robot has to be assigned to a user!' });
+  }
   if(name === undefined || email === undefined){
     return res.status(400).json({ message: 'Name and email are required' });
   }
@@ -19,7 +22,8 @@ export const createRobot = async (req, res) => {
   // Insert the new robot into the database
   await database('robots').insert({
     name: name,
-    email: email
+    email: email,
+    user_id: user_id
   })
 
   // Return the newly created robot object
@@ -27,12 +31,14 @@ export const createRobot = async (req, res) => {
 };
 
 export const getRobots = async (req, res) => {
-  // Set the response status to 200 and retrieve all robots from the database
   const page = parseInt(xss(req.query.page)) || 1;
   const limit = parseInt(xss(req.query.limit)) || 10;
-
+  const user_id = req.query.user_id;
+  console.log(req.body);
+  console.log(user_id);
   const robots = await database('robots')
     .select('*')
+    .where('user_id', user_id)
     .limit(limit)
     .offset((page - 1) * limit)
     .then(data => data);
@@ -41,40 +47,31 @@ export const getRobots = async (req, res) => {
 };
 
 export const getRobot = async (req, res) => {
-  // Sanitize the ID parameter to prevent cross-site scripting (XSS) attacks
   const id = xss(req.params.id);
 
-  // Retrieve the robot from the database based on the provided ID
   const robot = await database('robots').select('*').where('id', id).then(data => data[0])
 
-  // If the robot is not found, send a 404 error response with a message
   if (!robot) {
     res.status(404).json({ message: 'Robot not found' });
   } else {
-    // If the robot is found, send a 200 success response with the robot data
     res.status(200).json(robot);
   }
 };
 
 export const updateRobot = async (req, res) => {
-  // Sanitize the ID parameter to prevent cross-site scripting (XSS) attacks
   const id = xss(req.params.id);
   let name = req.body.name !== undefined ? xss(req.body.name) : undefined;
   let email = req.body.email !== undefined ? xss(req.body.email) : undefined;
   
-  // Check if both name and email are missing
   if(name === undefined && email === undefined){
       res.status(400).json({message: 'Nothing to update'});
   }
 
-  // Retrieve the robot from the database based on the provided ID
   const robot = await database('robots').select('*').where('id', id).then(data => data[0]);
 
-  // If the robot is not found, send a 404 error response with a message
   if (!robot) {
     res.status(404).json({ message: 'Robot not found' });
   } else {
-    // If the robot is found, update the name and email if not provided
     if(name === undefined){
       name = robot.name;
     }
@@ -82,7 +79,6 @@ export const updateRobot = async (req, res) => {
       email = robot.email;
     }
 
-    // Update the robot in the database
     await database('robots').where('id', id).update({ name, email })
       .then(async () => res.status(200).json(await database('robots').select('*').where('id', id).then(data => data[0])))
       .catch(() => res.sendStatus(500))
@@ -90,13 +86,10 @@ export const updateRobot = async (req, res) => {
 };
 
 export const deleteRobot = async (req, res) => {
-  // Sanitize the ID parameter to prevent cross-site scripting (XSS) attacks
   const id = xss(req.params.id);
 
-  // Check if the robot exists in the database
   const found = await database('robots').count('*').where('id', id).then(result => result[0].count > 0);
 
-  // If the robot is not found, send a 404 error response with a message
   if (!found) {
     res.status(404).json({ message: 'Robot not found' });
   } else {
